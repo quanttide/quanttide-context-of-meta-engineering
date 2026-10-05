@@ -1,44 +1,40 @@
-# pr4xis 使用总结
+# pr4xis 引入评估
 
-2026-10-05，用 pr4xis 0.29.1 在 `examples/quanttide-meta-lab/src/cli` 写成两个示例，把 `docs/gallery` 的两篇文档变成机器可执行的检查：`journal_profile_convergence.rs` 对应日志与档案的收敛，`master_data_ownership.rs` 对应主数据三层归属。记录这次用到的东西和学到的教训。
+决策问题：pr4xis 是否进入标准库、进入哪一层。评估依据 2026-10-05 在 `examples/quanttide-meta-lab/src/cli` 的一次实测（pr4xis 0.29.1），实测代码与运行输出均可复跑。
 
-## 简介可信但要下载源码核对
+## 结论与建议
 
-`data/library/pr4xis.md` 的简介方向正确，落到类型就有几处出入，照简介写编不过。
+- 建议引入，范围限定在有界状态机的前置条件检查：把 gallery 文档里的规则写成 `Precondition`，引擎拦下不合规的状态转换并指出具体是哪条公理失败。这一层已验证可用。
+- 暂不引入的部分是推理与收敛：余极限计算、余锥选择、演绎归纳溯因都不在本次验证范围，简介提到的这些能力没有一条跑通过。
+- 引入的两个前置条件：确认 CC-BY-NC-SA-4.0 非商业条款与实验室代码的分发方式不冲突；版本锁 0.29.1，该库仍处 0.x 迭代段。
 
-- `Engine::new(初始情境, 前置条件, apply)` 与 `.next()`、`.back()`、`.forward()` 属实；`EngineError::Violated` 把引擎和违反它的公理一并交还，所以被拦下之后能继续操作，也能打印出是哪条公理拦的。
-- 前置条件 `Precondition::check` 返回 `Verdict`，类型是 `Result<Box<dyn Proof>, Box<dyn Counterexample>>`。库里没有从 bool 构造 Verdict 的助手，每次检查都要显式给出证明或反例。
-- 证明和反例都带 `Provenance`（`name`、`description`、`citation`、`module_path` 四个字段）。示例先写 `axiom_meta()` 再写规则，公理出处填 gallery 文档路径。
-- `ontology!` 宏可用的子句是 `name`、`source`、`concepts`、`labels`、`edges`，`labels` 接受中文，例如 `("zh", "本体", "实例数据的正本")`。宏生成 `{Name}Concept`、`{Name}Category`、`{Name}Ontology` 和关系种类枚举，引擎侧直接查 Category 的边。
+## 支撑证据
 
-## 归属规则写在本体里
+API 以下载的 0.29.1 源码逐个核对，简介 `data/library/pr4xis.md` 只作线索。核对结果：`Engine::new(初始情境, 前置条件, apply)` 与 `.next()/.back()/.forward()` 属实；前置条件返回 `Verdict`（`Result<Box<dyn Proof>, Box<dyn Counterexample>>`），每个判定必须附带 `Provenance` 四字段。
 
-`master_data_ownership.rs` 用三条 `OwnedBy` 边声明三层归属，前置条件只查 Category 里有没有对应边。本体声明的是归业务系统，所以「本体归数据工程」被拦下，实际输出：
-
-```text
-✗ DeclaredInOntology: 本体未声明「本体」归 数据工程 —— 已声明的归属见 OwnedBy 边
-```
-
-换归属就改那行边，引擎代码不动。规则与代码分离这一点在示例里成立。
-
-## 收敛题的实际结果
-
-`journal_profile_convergence.rs` 初始只有第一条事件对齐，直接 `next(Converge)` 被两条公理拦下：
+拦截能力的实际输出，对应 `docs/gallery/ontology/entity/master-data.md` 的三层归属决议：
 
 ```text
-✗ AlignmentComplete: 未对齐的日志事件：["10月3日调整预算", "10月5日暂停B渠道"]
-✗ HumanConfirmed: 候选视图尚无人类确认，停在 pending
+2) 本体归数据工程 → 被拦下
+   ✗ DeclaredInOntology: 本体未声明「本体」归 数据工程 —— 已声明的归属见 OwnedBy 边
 ```
 
-补齐对齐、把档案侧无对应的事件显式标记、填 `approved_by` 之后收敛通过；`.back()` 回到 Pending，`.forward()` 回到 Converged，轨迹 5 条含被拦的那次。余极限怎么算、三个余锥选哪个仍在引擎之外，示例里对应 `Approve` 这个人类动作。
+收敛题的实际输出，对应 `docs/gallery/category/journal-vs-profile.md` 第七节：
 
-## 工程流程
+```text
+1) 直接 next(Converge) —— 被公理拦下：
+   ✗ AlignmentComplete: 未对齐的日志事件：["10月3日调整预算", "10月5日暂停B渠道"]
+   ✗ HumanConfirmed: 候选视图尚无人类确认，停在 pending
+```
 
-- crates.io 的 API 对脚本返回 403，取源码改走 `index.crates.io` 查版本、`static.crates.io` 下载 `.crate`，解包读 `src/engine/` 和 `ontology/tests.rs` 才拿到真实语法。
-- 包里只有 `examples/` 也能构建，不需要 `src/lib.rs`，`cargo check --example <name>` 可用。
-- `cargo clippy --all-targets -- -D warnings` 拦下三类问题：变体名以 enum 名结尾（`Layer::OntologyLayer` 改成 `Layer::Ontology`）、Copy 类型上调 `clone()`、`Result` 上 `.ok().expect()`。fmt 与 clippy 双绿后再提交。
-- 实验室子模块处于分离头指针，推送用 `git push origin HEAD:main`；这次远端多出一条改名提交，先 `git fetch` 加 `git rebase origin/main` 才推得上去。
+规则改动的成本在实测中为零：三层归属写在 `ontology!` 的三条 `OwnedBy` 边里，换归属改声明即可，引擎代码不动。两个示例 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 双绿，`cargo run --example` 可复跑。
 
-## 未验证范围与许可证
+## 证据的可信度边界
 
-`pr4xis-domains`、`.prx` 归档、跨领域函子、演绎归纳溯因三种推理模式这次都没碰，示例只覆盖状态机前置条件检查这一条路径。pr4xis 许可证为 CC-BY-NC-SA-4.0 含非商业条款，实验室代码若要对外分发需先确认。
+单次实测、两个示例，只覆盖状态机前置条件检查一条路径。`pr4xis-domains`、`.prx` 归档、跨领域函子、三种推理模式均未验证；对这些能力的判断目前仅来自简介，而简介已知有与源码不符之处，后续核对同样以源码为准。
+
+## 待决事项
+
+1. 是否引入及落点层级——标准库中承担规则检查，还是仅留在实验室试用。
+2. 许可证合规确认——非商业条款与代码分发方式的冲突判断。
+3. 是否投入验证推理与归档能力——这决定 pr4xis 能否承担标准库中的推理角色。
