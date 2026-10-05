@@ -83,3 +83,77 @@
 这套分析的成本不低——你需要定义对象、态射、复合规则、函子，还要在测试中验证定律。只有当插件和 agent 核心的交互复杂到“靠直觉和文档已经说不清楚”时，这套方法才划算。
 
 如果只有一个插件、两个 Hook、三个 Tool，手写 if-else 加单元测试就够了。当插件数量到几十个、交互路径互相影响、改动一个插件可能静默破坏另一个插件的预期时，函子分析才开始体现出它的价值：它把“这个改动会不会影响那个插件”从模糊的担忧，变成可检查的结构对应关系。
+
+用范畴论来看 pi-hermes-memory 和 Pi 的关系，核心是建立一个函子 F: 𝐂_hermes → 𝐂_pi，把记忆插件的知识结构映射到 Pi Agent 的生命周期中。
+
+—
+
+🧩 两个范畴
+
+𝐂_pi（Pi Agent 范畴）
+
+Pi 的架构是「一个核心循环 + 无数个深度的 hooks 挂载点」，分为四层，每一层都是独立的状态机：Session 生命周期层、Agent 核心循环层、工具执行管道层、Provider 传输层。
+
+· 对象：生命周期状态节点——session_start、session_shutdown、before_agent_start、context、tool_call、tool_result、agent_end 等。
+· 态射：状态之间的流转，如「会话启动 → Agent 循环开始 → 工具调用 → 结果返回 → 会话结束」。
+· 复合：一次完整会话就是一条复合态射：session_start ∘ before_agent_start ∘ turn_start ∘ tool_call ∘ ... ∘ session_shutdown。
+
+𝐂_hermes（Hermes Memory 范畴）
+
+pi-hermes-memory 管理三类知识：
+
+· Memory（MEMORY.md） ：事实——环境细节、项目约定、工具怪癖，上限 5000 字符。
+· User Profile（USER.md） ：用户画像——姓名、偏好、沟通风格，上限 5000 字符。
+· Skills（SKILL.md） ：过程性知识——“如何解决某类问题”的可复用文档，无上限。
+· 对象：Memory、UserProfile、Skill 三种知识类型，以及它们的具体条目。
+· 态射：知识的检索、写入、合并操作。例如 memory_search、memory_write、auto_consolidation、correction_detection。
+· 复合：一次「背景学习」过程就是复合态射：读取当前会话上下文 ∘ 检索相关记忆 ∘ 评估是否需要保存 ∘ 写入新记忆。
+
+🔗 函子 F: 𝐂_hermes → 𝐂_pi
+
+pi-hermes-memory 通过 Pi 的扩展系统加载。安装时，Pi 会读取包清单中声明的资源。这个包清单声明了一个扩展入口 ./src/index.ts，Pi 在启动时加载并执行它。
+
+函子映射表
+
+𝐂_hermes 对象/态射 𝐂_pi 对象/态射 映射方式
+Memory 条目 context hook 注入的内容 在构建上下文时，检索到的记忆被注入 messages 数组
+UserProfile 条目 before_agent_start hook 修改的 systemPrompt 在 Agent 启动前，用户画像被写入系统提示词
+Skill 条目 Pi 原生 SKILL.md 发现机制 技能目录被 Pi 的技能索引发现，可通过 skill_manage 工具调用
+memory_write 态射 tool_call 或 session_shutdown hook 当检测到需要保存的内容时，触发写入操作
+memory_search 态射 context hook 中的检索逻辑 在构建上下文时，通过 SQLite FTS5 检索相关记忆
+correction_detection 态射 message_end 或 tool_result hook 检测到用户纠正时，立即保存
+
+函子定律验证
+
+· 保持恒等：Hermes 范畴中「不修改记忆」的恒等态射，映射到 Pi 后必须是「不修改上下文」的恒等操作。pi-hermes-memory 在没有任何新知识需要保存时，确实不介入 Agent 循环——它只在检测到信号时才触发写入。
+· 保持复合：Hermes 中「背景学习 → 自动合并 → 扩展存储」的复合，映射到 Pi 后，必须对应「turn_end hook 触发评估 → auto_consolidation 合并条目 → Extended Store 将超出 Markdown 上限的记忆保留在 SQLite 中」这条复合链。这两条链在结构上对应。
+
+⚙️ 它如何工作：一条完整的交互链
+
+一次典型的交互发生在上下文构建阶段和会话结束阶段。
+
+上下文构建时（context hook）：
+
+1. Pi 准备向 LLM 发送请求，触发 context hook。
+2. pi-hermes-memory 拦截，执行 memory_search——从 SQLite FTS5 中检索与当前对话相关的记忆条目。
+3. 检索到的 Memory 和 UserProfile 条目被注入到 messages 数组中，作为额外上下文。
+4. Pi 继续构建完整的请求 payload。
+
+会话结束或背景学习时：
+
+1. 每 10 轮对话或 15 次工具调用后，触发一次背景学习。
+2. 插件评估当前会话中是否有值得保存的内容（新事实、用户偏好、纠正、失败教训）。
+3. 如果有，执行 memory_write——通过 secret scanning 检查后，写入 MEMORY.md 或 USER.md，同时镜像到 SQLite 供后续检索。
+4. 如果记忆容量达到上限，触发 auto_consolidation，合并旧条目而非报错。
+
+⚠️ 范畴论视角下需要注意的坑
+
+第一，记忆写入的时机是异步的，可能破坏复合律。 背景学习每 10 轮触发一次，但用户可能在 11 轮时关闭会话。如果 session_shutdown 没有强制 flush 未写入的记忆，Hermes 范畴中的「写入 → 检索」复合在 Pi 范畴中可能不成立——写入发生了，但检索不到。这需要在 session_shutdown hook 中显式保证写入完成。
+
+第二，context hook 的注入可能改变 Agent 的推理路径。 注入的记忆改变了 LLM 的输入，这意味着「上下文构建 → LLM 响应」这条态射的值域依赖于注入的内容。如果注入的记忆与当前会话无关，会引入噪声；如果相关，会提升质量。这不是函子定律的问题，是语义层面的判断。
+
+第三，Skills 的发现机制与 Memory 不同。 Skills 通过 Pi 原生的 SKILL.md 发现机制加载，而不是通过 hook 注入。这意味着 Skills 的函子映射走的是另一条路径——它不是「在某个 hook 中注入」，而是「被 Pi 的技能索引直接发现」。这两条路径在 Pi 范畴中对应不同的态射，需要分别验证。
+
+💎 总结
+
+pi-hermes-memory 和 Pi 的关系，在范畴论上是一个从知识管理范畴到 Agent 生命周期范畴的函子。它把「记忆的检索和写入」映射到「上下文构建和会话结束」这两个 Pi 的生命周期节点上。函子的结构保持性保证了：如果 Hermes 侧的知识组织是自洽的（记忆类型清晰、复合规则一致），那么映射到 Pi 后，Agent 的行为会按照预期的方式被记忆影响。需要注意的核心是异步写入的时机和两条不同的技能注入路径。
