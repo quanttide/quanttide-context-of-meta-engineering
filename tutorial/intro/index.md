@@ -6,7 +6,7 @@
 - [学习单元 2 状态机与前后置条件](./2_state.md)
 - [学习单元 3 细化 Refinement](./3_refinement.md)
 - [学习单元 4 并发交错与安全性/活性](./4_interleaving.md)
-- [学习单元 5 模块化与组合](./5_composition.md)
+- [把多个状态组合成一个系统](./5_composition.md)
 - [学习单元 6 范畴论收顶](./6_category.md)
 
 ---

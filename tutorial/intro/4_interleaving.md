@@ -161,4 +161,4 @@ Unit 5：规格的模块化与组合（Composition）
 
 要先把上面并发练习丢过来我帮你看一眼，还是直接开组合单元？
 
-上一篇：[学习单元 3 细化 Refinement](./3_refinement.md)　下一篇：[学习单元 5 模块化与组合](./5_composition.md)
+上一篇：[学习单元 3 细化 Refinement](./3_refinement.md)　下一篇：[把多个状态组合成一个系统](./5_composition.md)
