@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### 变更
+
+- `journal/` 积存的 18 篇日志（16 个域，2026-10-19 ~ 2026-10-28）整体迁出至 `quanttide-journal-of-meta-engineering`，落 `<域>/<YYYY-MM-DD>.md`；源侧不留副本，本仓继续不收日志
+
 ## [0.1.0] - 2026-10-19
 
 ### 新增
