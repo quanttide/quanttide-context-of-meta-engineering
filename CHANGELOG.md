@@ -12,6 +12,7 @@
 
 ### 变更
 
+- `journal/` 积存的 6 篇日志（5 域，2026-11-03 ~ 2026-11-04）整体迁出至 `quanttide-journal-of-meta-engineering`，落 `<域>/<YYYY-MM-DD>.md`；源侧不留副本，本仓继续不收日志
 - `profile/quanttide-market/`《同理心》迁出至 quanttide-profile-of-market-management（营销管理域冷启动），源侧不留副本
 - `journal/` 积存的 18 篇日志（16 个域，2026-10-19 ~ 2026-10-28）整体迁出至 `quanttide-journal-of-meta-engineering`，落 `<域>/<YYYY-MM-DD>.md`；源侧不留副本，本仓继续不收日志
 
